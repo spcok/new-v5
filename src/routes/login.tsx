@@ -2,9 +2,9 @@ import { createFileRoute, useNavigate, redirect } from '@tanstack/react-router';
 import { useForm } from '@tanstack/react-form';
 import { z } from 'zod';
 import { Mail, Lock } from 'lucide-react';
-import { useAuthStore } from '../features/auth/authStore';
-import { usePowerSync } from '@powersync/react';
 import { useState } from 'react';
+import { useAuthStore } from '../features/auth/authStore';
+import { supabase } from '../features/db/supabase';
 
 export const Route = createFileRoute('/login')({
   beforeLoad: ({ context }) => {
@@ -23,8 +23,8 @@ const passwordSchema = z.string().min(8, 'Password must be at least 8 characters
 function Login() {
   const login = useAuthStore((state) => state.login);
   const navigate = useNavigate();
-  const powersync = usePowerSync();
   const [authError, setAuthError] = useState<string | null>(null);
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
 
   const form = useForm({
     defaultValues: {
@@ -33,19 +33,33 @@ function Login() {
     },
     onSubmit: async ({ value }) => {
       setAuthError(null);
-      try {
-        const result = await powersync.getAll('SELECT * FROM users WHERE email = ?', [value.email]);
-        if (result.length > 0) {
-          login(result[0].name, result[0].initials);
-          navigate({ to: '/' });
-        } else {
-          setAuthError('Access Denied: User not found in local vault. Please check your connection or wait for sync.');
-          return;
-        }
-      } catch (error) {
-        setAuthError('Database query failed. Please try again.');
+      setIsAuthenticating(true);
+
+      const { data: authData, error: signInError } = await supabase.auth.signInWithPassword({
+        email: value.email,
+        password: value.password,
+      });
+
+      if (signInError) {
+        setAuthError(signInError.message);
+        setIsAuthenticating(false);
         return;
       }
+
+      // Fetch user profile from the users table based on email
+      const { data: profileData, error: profileError } = await supabase
+        .from('users')
+        .select('name, initials')
+        .eq('email', value.email)
+        .single();
+
+      // Proceed even if profile fetch fails, falling back to generics
+      const userName = profileData?.name || 'Keeper';
+      const userInitials = profileData?.initials || 'XX';
+
+      login(userName, userInitials);
+      setIsAuthenticating(false);
+      navigate({ to: '/' });
     },
   });
 
@@ -60,6 +74,12 @@ function Login() {
             Kent Owl Academy V5
           </span>
         </div>
+
+        {authError && (
+          <div className="p-3 mb-4 bg-rose-500/10 border border-rose-500/20 rounded-lg text-rose-400 text-xs text-center">
+            {authError}
+          </div>
+        )}
 
         <form
           onSubmit={(e) => {
@@ -132,22 +152,16 @@ function Login() {
             )}
           </form.Field>
 
-          {authError && (
-            <div className="text-center mt-2">
-              <span className="text-rose-500 text-sm font-medium">{authError}</span>
-            </div>
-          )}
-
           <form.Subscribe
              selector={(state) => [state.canSubmit, state.isSubmitting]}
           >
             {([canSubmit, isSubmitting]) => (
               <button
                 type="submit"
-                disabled={!canSubmit || isSubmitting}
-                className="mt-2 bg-[#3b5b88] hover:bg-[#4a72aa] disabled:bg-zinc-800 disabled:text-zinc-500 text-white w-full py-3 rounded font-bold font-mono text-xs uppercase tracking-widest transition-colors"
+                disabled={!canSubmit || isAuthenticating}
+                className="mt-4 bg-[#3b5b88] hover:bg-[#4a72aa] disabled:bg-zinc-800 disabled:text-zinc-500 text-white w-full py-3 rounded font-bold font-mono text-xs uppercase tracking-widest transition-colors"
               >
-                {isSubmitting ? 'Authenticating...' : 'Login'}
+                {isAuthenticating ? 'AUTHENTICATING...' : 'Login'}
               </button>
             )}
           </form.Subscribe>

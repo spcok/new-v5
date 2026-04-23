@@ -1,6 +1,7 @@
 import { createFileRoute, redirect } from '@tanstack/react-router';
-import { Calendar, ChevronLeft, ChevronRight, Activity, Plus, Filter, CloudSun, MapPin, CheckCircle2, Lock, Unlock, ArrowDownAZ, ArrowUpAZ } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Activity, Plus, Filter, CloudSun, MapPin, CheckCircle2, Lock, Unlock, ArrowDownAZ, ArrowUpAZ, Loader2 } from 'lucide-react';
 import { useState } from 'react';
+import { usePowerSyncWatchedQuery } from '@powersync/react';
 
 export const Route = createFileRoute('/')({
   beforeLoad: ({ context }) => {
@@ -13,30 +14,21 @@ export const Route = createFileRoute('/')({
   component: Dashboard,
 });
 
-function useDashboardData() {
-  return {
-    stats: {
-      weighed: 7,
-      totalAnimals: 42,
-      fed: 28,
-      pendingDuties: 4,
-      healthAlerts: 1
-    },
-    animals: [
-      { id: '1', name: 'Barnaby', species: 'Barn Owl', microchip: '9810200', todaysWeight: '320g', todaysFeed: '2x Mice', lastFed: '09:00AM', location: 'Aviary 1' },
-      { id: '2', name: 'Luna', species: 'European Eagle Owl', microchip: '9810201', todaysWeight: '2.1kg', todaysFeed: '1x Quail', lastFed: '10:30AM', location: 'Aviary 3' },
-      { id: '3', name: 'Archimedes', species: 'Tawny Owl', microchip: '9810202', todaysWeight: '415g', todaysFeed: '-', lastFed: 'Yesterday', location: 'Aviary 2' },
-      { id: '4', name: 'Ghost', species: 'Snowy Owl', microchip: '9810203', todaysWeight: '-', todaysFeed: '-', lastFed: 'Yesterday', location: 'Quarantine' },
-    ]
-  };
-}
-
 function Dashboard() {
-  const { stats, animals } = useDashboardData();
   const [viewDate, setViewDate] = useState(new Date().toISOString().split('T')[0]);
   const [activeTab, setActiveTab] = useState('Owls');
   const [sortOption, setSortOption] = useState('alpha-asc');
   const [isOrderLocked, setIsOrderLocked] = useState(false);
+
+  const { data: rawAnimals, isLoading } = usePowerSyncWatchedQuery('SELECT * FROM animals WHERE is_deleted = 0 OR is_deleted IS NULL');
+
+  const stats = {
+    weighed: 7,
+    totalAnimals: rawAnimals?.length || 0,
+    fed: 28,
+    pendingDuties: 4,
+    healthAlerts: 1
+  };
 
   const tabs = ['Owls', 'Raptors', 'Mammals', 'Exotics', 'Archived'];
 
@@ -58,6 +50,24 @@ function Dashboard() {
     const d = new Date(viewDate);
     return `${d.getDate()} ${d.toLocaleString('default', { month: 'short' })}`;
   };
+
+  const processedAnimals = (rawAnimals || []).map(a => ({
+    id: a.id,
+    name: a.name || 'Unknown',
+    species: a.species || 'Unknown',
+    microchip: a.id.substring(0, 8),
+    todaysWeight: '-',
+    todaysFeed: '-',
+    lastFed: '-',
+    location: a.enclosure_id || 'Unknown'
+  }));
+
+  const filteredAnimals = processedAnimals.filter(a => {
+    if (activeTab === 'Archived') return false;
+    if (activeTab === 'Owls') return a.species.toLowerCase().includes('owl');
+    if (activeTab === 'Raptors') return a.species.toLowerCase().includes('eagle') || a.species.toLowerCase().includes('hawk') || a.species.toLowerCase().includes('falcon');
+    return true;
+  });
 
   return (
     <div className="p-4 lg:p-8 h-full w-full flex flex-col gap-6">
@@ -205,46 +215,53 @@ function Dashboard() {
 
         {/* Desktop Data Table */}
         <div className="flex-1 overflow-x-auto bg-[#1c1f26]">
-          <table className="w-full text-left border-collapse min-w-[800px]">
-            <thead>
-              <tr className="border-b border-slate-800 bg-[#0f1115]/80">
-                <th className="p-4 text-xs font-bold uppercase tracking-widest text-slate-400 whitespace-nowrap">Name</th>
-                <th className="p-4 text-xs font-bold uppercase tracking-widest text-slate-400 whitespace-nowrap">Species</th>
-                <th className="p-4 text-xs font-bold uppercase tracking-widest text-slate-400 whitespace-nowrap hidden lg:table-cell">Ring/Microchip</th>
-                <th className="p-4 text-xs font-bold uppercase tracking-widest text-slate-400 whitespace-nowrap">Today's Weight</th>
-                <th className="p-4 text-xs font-bold uppercase tracking-widest text-slate-400 whitespace-nowrap">Today's Feed</th>
-                <th className="p-4 text-xs font-bold uppercase tracking-widest text-slate-400 whitespace-nowrap">Last Fed</th>
-                <th className="p-4 text-xs font-bold uppercase tracking-widest text-slate-400 whitespace-nowrap hidden sm:table-cell">Location</th>
-              </tr>
-            </thead>
-            <tbody>
-              {animals.map((animal) => (
-                <tr key={animal.id} className="border-b border-slate-800/50 last:border-0 hover:bg-slate-800/30 transition-colors group">
-                  <td className="p-4">
-                    <span className="font-bold text-slate-100 block">{animal.name}</span>
-                    <span className="text-[10px] text-slate-500 font-mono lg:hidden block mt-0.5">{animal.microchip}</span>
-                  </td>
-                  <td className="p-4 text-sm text-slate-300">{animal.species}</td>
-                  <td className="p-4 text-sm font-mono text-slate-400 hidden lg:table-cell">{animal.microchip}</td>
-                  <td className="p-4">
-                    <span className={`inline-block px-2 xl:px-3 py-1 rounded text-xs font-medium border ${
-                      animal.todaysWeight !== '-' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-slate-800/50 text-slate-500 border-slate-700/50'
-                    }`}>
-                      {animal.todaysWeight}
-                    </span>
-                  </td>
-                  <td className="p-4 text-sm text-slate-300">{animal.todaysFeed}</td>
-                  <td className="p-4 text-sm text-slate-400">{animal.lastFed}</td>
-                  <td className="p-4 hidden sm:table-cell">
-                     <div className="flex items-center gap-1.5 text-xs text-slate-400 bg-slate-800/50 px-2 py-1 rounded w-fit">
-                       <MapPin className="w-3 h-3 text-emerald-500" />
-                       {animal.location}
-                     </div>
-                  </td>
+          {isLoading ? (
+            <div className="flex flex-col items-center justify-center h-64 text-slate-400 gap-4">
+              <Loader2 className="w-8 h-8 animate-spin text-emerald-500" />
+              <p className="text-sm font-medium tracking-wide uppercase">Syncing Vault...</p>
+            </div>
+          ) : (
+            <table className="w-full text-left border-collapse min-w-[800px]">
+              <thead>
+                <tr className="border-b border-slate-800 bg-[#0f1115]/80">
+                  <th className="p-4 text-xs font-bold uppercase tracking-widest text-slate-400 whitespace-nowrap">Name</th>
+                  <th className="p-4 text-xs font-bold uppercase tracking-widest text-slate-400 whitespace-nowrap">Species</th>
+                  <th className="p-4 text-xs font-bold uppercase tracking-widest text-slate-400 whitespace-nowrap hidden lg:table-cell">Ring/Microchip</th>
+                  <th className="p-4 text-xs font-bold uppercase tracking-widest text-slate-400 whitespace-nowrap">Today's Weight</th>
+                  <th className="p-4 text-xs font-bold uppercase tracking-widest text-slate-400 whitespace-nowrap">Today's Feed</th>
+                  <th className="p-4 text-xs font-bold uppercase tracking-widest text-slate-400 whitespace-nowrap">Last Fed</th>
+                  <th className="p-4 text-xs font-bold uppercase tracking-widest text-slate-400 whitespace-nowrap hidden sm:table-cell">Location</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {filteredAnimals.map((animal) => (
+                  <tr key={animal.id} className="border-b border-slate-800/50 last:border-0 hover:bg-slate-800/30 transition-colors group">
+                    <td className="p-4">
+                      <span className="font-bold text-slate-100 block">{animal.name}</span>
+                      <span className="text-[10px] text-slate-500 font-mono lg:hidden block mt-0.5">{animal.microchip}</span>
+                    </td>
+                    <td className="p-4 text-sm text-slate-300">{animal.species}</td>
+                    <td className="p-4 text-sm font-mono text-slate-400 hidden lg:table-cell">{animal.microchip}</td>
+                    <td className="p-4">
+                      <span className={`inline-block px-2 xl:px-3 py-1 rounded text-xs font-medium border ${
+                        animal.todaysWeight !== '-' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-slate-800/50 text-slate-500 border-slate-700/50'
+                      }`}>
+                        {animal.todaysWeight}
+                      </span>
+                    </td>
+                    <td className="p-4 text-sm text-slate-300">{animal.todaysFeed}</td>
+                    <td className="p-4 text-sm text-slate-400">{animal.lastFed}</td>
+                    <td className="p-4 hidden sm:table-cell">
+                       <div className="flex items-center gap-1.5 text-xs text-slate-400 bg-slate-800/50 px-2 py-1 rounded w-fit">
+                         <MapPin className="w-3 h-3 text-emerald-500" />
+                         {animal.location}
+                       </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </div>
